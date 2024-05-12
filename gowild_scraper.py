@@ -1,4 +1,5 @@
-import random, time, requests, json, html
+import random, time, urllib, requests, json, html
+from urllib.error import HTTPError
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import browsercookie
@@ -145,27 +146,16 @@ def get_flight_html(origin, date, session, cjs, roundtrip, start_index=0, destin
         }
         cj = browsercookie.chrome() if cjs else None
         time.sleep(random.uniform(0.5,1.5))
-        #time.sleep(random.uniform(0.5,1.5))
+
         # Get schedule data for the route
-        schedule_url = f"https://booking.flyfrontier.com/Flight/RetrieveSchedule?calendarSelectableDays.Origin={origin}&calendarSelectableDays.Destination={dest}"
-        schedule_response = requests.Session().get(schedule_url, headers=header, cookies=cj) if cjs else requests.Session().get(schedule_url, headers=header)
-            
-        if schedule_response.status_code == 200:
-            schedule_data = schedule_response.json()
-            disabled_dates = schedule_data['calendarSelectableDays']['disabledDates']
-            last_available_date = schedule_data['calendarSelectableDays']['lastAvailableDate']
-
-            # Convert the input date to the same format as the disabled dates list
-            formatted_date = date.strftime('%m/%d/%Y')
-
-            # Check if the date is in the list of disabled dates
-            if formatted_date in disabled_dates or last_available_date == '0001-01-01 00:00:00':
+        try:
+            if not route_has_flights(date, origin, dest, header, cookies=cj):
+                formatted_date = date.strftime('%m/%d/%Y')
                 print(f"{i}. No flights available on {formatted_date} from {origin} to {dest}. Date skipped.")
                 continue
-        else:
-            print(f"{i}. Problem accessing URL: code {schedule_response.status_code}\n url = " + schedule_url)
+        except HTTPError as e:
+            print(f"{i}. Problem accessing URL: code {e.status_code}\n url = " + schedule_url)
 
-        
         # Mimic human-like behavior by adding delays between requests
         #delay = random.uniform(2, 5)  # Random delay between 2 to 5 seconds
         #time.sleep(delay)
@@ -188,6 +178,22 @@ def get_flight_html(origin, date, session, cjs, roundtrip, start_index=0, destin
             print(f"{i}. Problem accessing URL: code {response.status_code}\n url = " + url)
             break
     #f.close()
+
+def route_has_flights(date, origin, dest, header, cookies=None):
+    schedule_url = f"https://booking.flyfrontier.com/Flight/RetrieveSchedule?calendarSelectableDays.Origin={origin}&calendarSelectableDays.Destination={dest}"
+    schedule_response = requests.Session().get(schedule_url, headers=header, cookies=cookies)
+    if (schedule_response.status_code == 200):
+        schedule_data = schedule_response.json()
+        disabled_dates = schedule_data['calendarSelectableDays']['disabledDates']
+        last_available_date = schedule_data['calendarSelectableDays']['lastAvailableDate']
+
+        # Convert the input date to the same format as the disabled dates list
+        formatted_date = date.strftime('%m/%d/%Y')
+
+        # Check if the date is in the list of disabled dates
+        return not (formatted_date in disabled_dates or last_available_date == '0001-01-01 00:00:00')
+    else:
+        raise HTTPError(schedule_url, schedule_response.status_code, 'HTTP request failed')
 
 def extract_json(flight_data, origin, dest, date, roundtrip):
     # Extract the flights with isGoWildFareEnabled as true
